@@ -1,0 +1,12 @@
+# football_data.yaml 내용 수정
+
+path: C:/Users/k0104/PycharmProjects/PythonProject/fittogether/football_dataset
+
+# ★ 이 부분을 새로 샘플링된 폴더 이름으로 수정합니다 ★
+train: images/train_10percent
+
+# 검증용은 기존 폴더를 그대로 사용합니다. (검증용은 축소할 필요 없음)
+val: images/val
+
+nc: 3
+names: ['players', 'ball', 'others']
