@@ -8,6 +8,9 @@ TEST_IMAGE_PATH = 'test_photo.jpg'
 K_CLUSTERS = 3
 BALL_CLASS_ID = 1
 
+OTHER = ["OTHER"]
+TEAM_OPPONENT = ["Son Heung-min", "Lee Kang-in", "Hwang Hee-chan", "Kim Min-jae", "Gue-sung Cho", "Unidentified Player"]
+TEAM_OURS = ["Son Heung-min", "Lee Kang-in", "Hwang Hee-chan", "Kim Min-jae", "Gue-sung Cho", "Unidentified Player"]
 
 def get_representative_color(img, box_coords):
     x1, y1, x2, y2 = map(int, box_coords)
