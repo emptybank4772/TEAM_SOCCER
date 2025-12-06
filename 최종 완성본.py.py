@@ -5,42 +5,11 @@ import numpy as np
 from ultralytics import YOLO
 import os
 
-#학습 모델과t test이미지
+#학습 모델과 test이미지
 MODEL_PATH = 'best.pt'
 TEST_IMAGE_PATH = 'test_photo.jpg'
 
-# (편의상 기존 함수 복사)
-def get_representative_color(img, box_coords):
-    """선수의 바운딩 박스 중앙 1/3 영역의 픽셀을 추출합니다."""
-    x1, y1, x2, y2 = map(int, box_coords)
-    y_start = y1 + (y2 - y1) // 3
-    y_end = y1 + 2 * (y2 - y1) // 3
-    roi = img[y_start:y_end, x1:x2]
-    if roi.size == 0:
-        return None
-    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-    pixels = np.float32(roi_rgb.reshape((-1, 3)))
-    return pixels
-
-
-def kmeans_clustering(all_pixels, k):
-    """K-means 클러스터링을 실행합니다."""
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-    if all_pixels.size == 0 or len(all_pixels) < k:
-        return np.array([]), np.array([])
-    ret, labels, centers = cv2.kmeans(all_pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-    return labels, np.uint8(centers)
-
-
-def get_center_coords(box):
-    """바운딩 박스의 중심 좌표를 계산합니다."""
-    x1, y1, x2, y2 = box
-    center_x = (x1 + x2) / 2
-    center_y = (y1 + y2) / 2
-    return center_x, center_y
-
-
-# K-means 클러스터 인덱스
+# K-means 클러스터 인덱스 정의 (0 : 잔디, 1 : 우리팀, 2 : 상대팀)
 GRASS_CLUSTER_INDEX = 0
 TEAM_OURS_INDEX = 1
 TEAM_OPPONENT_INDEX = 2
@@ -59,19 +28,46 @@ HEX_COLOR_OPPONENT = "#FF0000"
 HEX_COLOR_OTHER = "#646464"
 
 
-# (수정) 1번 방식: 수동 목록 매칭을 위한 선수 이름
+# 선수 이름 목록
 OURS_NAMES = ["[GK]Ter_Stegen", "[DF_1]Balde", "[DF_2]Araujo", "[DF_3]Cubarsi", "[DF_4]Christensen", "[MD_1]Gavi",
               "[MD_2]Pedri", "[MD_3]Fermin", "[FW_1]Ferran_Torres", "[FW_2]Lewandowski", "[FW_3]Lamine"]
 OPPONENT_NAMES = ["[FW_3]nicolas-jackson", "[FW_2]harry-kane", "[FW_1]serge_gnabry", "[MD_3]jamal_musiala", "[MD_2]leon_goretzka", "[MD_1]joshua_kimmich"
                   , "[DF_4]alphonso_davies", "[DF_3]jonathan-tah", "[DF_2]minjae-kim", "[DF_1]dayot_upamecano", "[GK]manuel_neuer"]
 
 
-# ... (기존 process_detection_and_classification 함수 - 내용 동일) ...
+
+# 선수의 바운딩 박스 중앙 1/3 영역의 픽셀을 추출해 K-means 분류에 사용
+def get_representative_color(img, box_coords):
+    x1, y1, x2, y2 = map(int, box_coords)
+    # 바운딩 박스 중앙 1/3 계산
+    y_start = y1 + (y2 - y1) // 3
+    y_end = y1 + 2 * (y2 - y1) // 3
+    # 관심 영역(ROI) 설정
+    roi = img[y_start:y_end, x1:x2]
+    if roi.size == 0:
+        return None
+    # K-means를 위해 픽셀 데이터를 1차원 배열로 변환
+    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+    pixels = np.float32(roi_rgb.reshape((-1, 3)))
+    return pixels
+
+# 픽셀을 k개의 그룹으로 분류
+def kmeans_clustering(all_pixels, k):
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+    if all_pixels.size == 0 or len(all_pixels) < k:
+        return np.array([]), np.array([])
+    ret, labels, centers = cv2.kmeans(all_pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    return labels, np.uint8(centers)
+
+# 바운딩 박스의 중심 좌표 계산
+def get_center_coords(box):
+    x1, y1, x2, y2 = box
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    return center_x, center_y
+
+# YOLO를 실행해 선수와 공 탐지 후, K-means를 사용해 팀을 분류한 후 X좌표 순으로 이름을 할당함
 def process_detection_and_classification(model, image_path):
-    """
-    YOLO를 실행하여 선수와 공을 탐지하고, K-means를 사용하여 선수에게 팀을 분류한 후,
-    X-좌표 순으로 이름을 할당합니다. (기존 로직과 동일)
-    """
     img = cv2.imread(image_path)
     if img is None:
         return None, [], []
@@ -109,7 +105,7 @@ def process_detection_and_classification(model, image_path):
 
     all_pixels_combined = np.vstack(all_player_pixels)
 
-    # 2. K-means 클러스터링
+    # 2. K-means 클러스터링 실행(잔디, 우리팀, 상대팀 3개)
     labels, cluster_centers = kmeans_clustering(all_pixels_combined, 3)
 
     if labels.size == 0:
@@ -131,6 +127,7 @@ def process_detection_and_classification(model, image_path):
         (unique, counts) = np.unique(current_labels, return_counts=True)
 
         valid_counts = {}
+        # 잔디 클러스터(0번)를 제외한 나머지 클러스터의 픽셀 수 계산
         for idx, cluster_label in enumerate(unique):
             if cluster_label != GRASS_CLUSTER_INDEX:
                 valid_counts[cluster_label] = counts[idx]
@@ -138,6 +135,7 @@ def process_detection_and_classification(model, image_path):
         team_id = "OTHER"
 
         if valid_counts:
+            # 가장 많은 픽셀을 차지하는 클러스터를 팀으로 결정
             player_cluster = max(valid_counts, key=valid_counts.get)
 
             if player_cluster == TEAM_OURS_INDEX:
@@ -189,12 +187,8 @@ def process_detection_and_classification(model, image_path):
 
     return img, final_player_data, ball_boxes
 
-
-# ... (기존 visualize_results 함수 - 내용 동일) ...
+#필터 타입에 따라 선수와 공을 시각화한 이미지 반환 후 화면에 표시할 선수 목록 필터링
 def visualize_results(original_img, player_data, ball_boxes, filter_type):
-    """
-    필터 타입에 따라 선수와 공을 시각화한 이미지를 반환합니다. (기존 로직과 동일)
-    """
     if original_img is None:
         return None, []
 
@@ -218,7 +212,7 @@ def visualize_results(original_img, player_data, ball_boxes, filter_type):
 
         if ball_boxes:
             ball_centers = [get_center_coords(box) for box in ball_boxes]
-
+            # 공과 가장 가까운 선수 찾기
             for player in player_data:
                 p_center_x, p_center_y = player['center']
 
@@ -245,7 +239,7 @@ def visualize_results(original_img, player_data, ball_boxes, filter_type):
         elif team == "TEAM_OPPONENT":
             color = COLOR_OPPONENT
 
-        # 일반 바운딩 박스
+        # 바운딩 박스 그리기
         cv2.rectangle(img_classified, (x1, y1), (x2, y2), color, 2)
 
         text_label = name
